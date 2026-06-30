@@ -129,13 +129,14 @@
             class="form-control"
             id="menuType">
 
-        <option value="custom">Custom Link</option>
+           <option value="custom">Custom Link</option>
         <option value="fixed">Fixed Page</option>
         <option value="page">Custom Page</option>
         <option value="brand">Brand</option>
         <option value="product_category">Product Category</option>
         <option value="product">Product</option>
         <option value="brand_category">Brand + Category</option> <!-- NEW -->
+    
     </select>
 </div>
 
@@ -305,6 +306,39 @@
  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 
 <script>
+$(document).ready(function () {
+
+    const csrf = $('meta[name="csrf-token"]').attr('content');
+
+    /*
+    |--------------------------------------------------------------------------
+    | BUILD MENU TREE
+    |--------------------------------------------------------------------------
+    */
+
+    function buildMenuTree($list)
+    {
+        let items = [];
+
+        $list.children('li').each(function(index){
+
+            let item = {
+                id: $(this).data('id'),
+                position: index + 1,
+                children: []
+            };
+
+            let childList = $(this).children('ul.nested-sortable');
+
+            if(childList.length){
+                item.children = buildMenuTree(childList);
+            }
+
+            items.push(item);
+        });
+
+        return items;
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -312,31 +346,22 @@
     |--------------------------------------------------------------------------
     */
 
-    function initSortable(el)
+    function initSortable(selector)
     {
-        new Sortable(el, {
+        document.querySelectorAll(selector).forEach(function(el){
 
-            group: 'nested',
-
-            animation: 150,
-
-            fallbackOnBody: true,
-
-            swapThreshold: 0.65,
-
-            handle: '.drag-handle'
+            new Sortable(el, {
+                group: 'nested',
+                animation: 150,
+                fallbackOnBody: true,
+                swapThreshold: 0.65,
+                handle: '.drag-handle'
+            });
 
         });
-
-        el.querySelectorAll('.nested-sortable')
-            .forEach(child => {
-
-                initSortable(child);
-
-            });
     }
 
-    initSortable(document.getElementById('menuList'));
+    initSortable('.nested-sortable');
 
     /*
     |--------------------------------------------------------------------------
@@ -349,37 +374,24 @@
         e.preventDefault();
 
         $.ajax({
-
             url: "{{ route('menus.store') }}",
-
-            method: "POST",
-
+            type: "POST",
             data: $(this).serialize(),
 
             success: function(response){
-
                 toastr.success(response.message);
-
                 location.reload();
-
             },
 
-           error: function(xhr){
+            error: function(xhr){
 
-    if(xhr.responseJSON.message){
-
-        toastr.error(xhr.responseJSON.message);
-
-    } else {
-
-        toastr.error('Error creating menu');
-
-    }
-
-}
-
+                if(xhr.responseJSON?.message){
+                    toastr.error(xhr.responseJSON.message);
+                }else{
+                    toastr.error('Error creating menu');
+                }
+            }
         });
-
     });
 
     /*
@@ -388,9 +400,9 @@
     |--------------------------------------------------------------------------
     */
 
-    $(document).on('click', '.deleteMenu', function(){
+    $(document).on('click','.deleteMenu',function(){
 
-        if(!confirm('Delete this menu?')) {
+        if(!confirm('Delete this menu?')){
             return;
         }
 
@@ -399,207 +411,166 @@
         $.ajax({
 
             url: '/admin/menus/delete/' + id,
+            type: 'DELETE',
 
-            method: 'DELETE',
-
-            data: {
-                _token: $('meta[name="csrf-token"]').attr('content')
+            data:{
+                _token: csrf
             },
 
-            success: function(response){
+            success:function(response){
 
                 toastr.success(response.message);
-
                 location.reload();
 
             }
-
         });
 
     });
 
+    /*
+    |--------------------------------------------------------------------------
+    | TOGGLE EDIT
+    |--------------------------------------------------------------------------
+    */
+
+    $(document).on('click','.toggleEdit',function(){
+
+        $(this)
+            .closest('li')
+            .find('.editArea')
+            .first()
+            .slideToggle();
+
+    });
 
     /*
-|--------------------------------------------------------------------------
-| TOGGLE EDIT PANEL
-|--------------------------------------------------------------------------
-*/
+    |--------------------------------------------------------------------------
+    | UPDATE MENU
+    |--------------------------------------------------------------------------
+    */
 
-$(document).on('click', '.toggleEdit', function(){
+    $(document).on('submit','.updateMenuForm',function(e){
 
-    $(this)
-        .closest('li')
-        .find('.editArea')
-        .first()
-        .slideToggle();
+        e.preventDefault();
 
-});
+        let form = $(this);
+        let id = form.data('id');
 
+        $.ajax({
 
-/*
-|--------------------------------------------------------------------------
-| UPDATE MENU
-|--------------------------------------------------------------------------
-*/
+            url: '/admin/menus/update/' + id,
+            type: 'POST',
+            data: form.serialize(),
 
-$(document).on('submit', '.updateMenuForm', function(e){
+            success:function(response){
 
-    e.preventDefault();
+                toastr.success(response.message);
+                location.reload();
 
-    let form = $(this);
+            },
 
-    let id = form.data('id');
+            error:function(xhr){
+
+                toastr.error(
+                    xhr.responseJSON?.message ?? 'Update failed'
+                );
+
+            }
+        });
+
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | MENU TYPE CHANGE
+    |--------------------------------------------------------------------------
+    */
+
+    $('#menuType').change(function(){
+
+        let type = $(this).val();
+
+        if(type === 'custom'){
+
+            $('.custom-url-field').show();
+            $('.reference-field').hide();
+
+            return;
+        }
+
+        $('.custom-url-field').hide();
+        $('.reference-field').show();
+
+        $.ajax({
+
+            url:'/admin/menus/references/' + type,
+            type:'GET',
+
+            success:function(response){
+
+                let html = '<option value="">Select Item</option>';
+
+                response.forEach(function(item){
+
+                    html += `
+                        <option value="${item.id}">
+                            ${item.label}
+                        </option>
+                    `;
+                });
+
+                $('#referenceSelect').html(html);
+            }
+        });
+
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | SAVE SORT ORDER
+    |--------------------------------------------------------------------------
+    */
+
+   $('#saveOrder').click(function(){
+
+    let menus = buildMenuTree($('#menuList'));
+
+    console.log(menus);
 
     $.ajax({
 
-        url: '/admin/menus/update/' + id,
+        url: "{{ route('menus.sort') }}",
 
-        method: 'POST',
+        type: "POST",
 
-        data: form.serialize(),
+        data: {
+            _token: csrf,
+            menus: menus
+        },
 
         success: function(response){
 
             toastr.success(response.message);
 
-            location.reload();
-
         },
 
         error: function(xhr){
 
-            if(xhr.responseJSON.message){
+            console.log(xhr.responseText);
 
-                toastr.error(xhr.responseJSON.message);
-
-            } else {
-
-                toastr.error('Update failed');
-
-            }
+            toastr.error('Sorting failed');
 
         }
 
     });
 
 });
-$('#menuType').change(function(){
-
-    let type = $(this).val();
-
-    /*
-    |--------------------------------------------------------------------------
-    | CUSTOM LINK
-    |--------------------------------------------------------------------------
-    */
-
-    if(type === 'custom'){
-
-        $('.custom-url-field').show();
-
-        $('.reference-field').hide();
-
-        return;
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | LOAD REFERENCES
-    |--------------------------------------------------------------------------
-    */
-
-    $('.custom-url-field').hide();
-
-    $('.reference-field').show();
-
-    $.ajax({
-
-        url: '/admin/menus/references/' + type,
-
-        method: 'GET',
-
-        success: function(response){
-
-            let html = '';
-
-            html += `
-                <option value="">
-                    Select Item
-                </option>
-            `;
-
-            response.forEach(function(item){
-
-                /*
-                |--------------------------------------------------------------------------
-                | FIXED MENU
-                |--------------------------------------------------------------------------
-                */
-
-                if(type === 'fixed'){
-
-                    html += `
-
-                        <option
-                            value="${item.id}"
-                            data-url="${item.url}">
-
-                            ${item.label}
-
-                        </option>
-                    `;
-
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | BRAND + CATEGORY
-                |--------------------------------------------------------------------------
-                */
-
-                else if(type === 'brand_category'){
-
-                    html += `
-
-                        <option
-                            value="${item.id}"
-                            data-brand="${item.brand_slug}"
-                            data-category="${item.category_slug}">
-
-                            ${item.label}
-
-                        </option>
-                    `;
-
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | NORMAL OPTIONS
-                |--------------------------------------------------------------------------
-                */
-
-                else{
-
-                    html += `
-
-                        <option value="${item.id}">
-
-                            ${item.label}
-
-                        </option>
-                    `;
-                }
-
-            });
-
-            $('#referenceSelect').html(html);
-
-        }
-
-    });
 
 });
+
+
+ 
+
 </script>
 
 </body>
